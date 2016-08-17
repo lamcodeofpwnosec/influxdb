@@ -854,7 +854,7 @@ func (s *CreateRetentionPolicyStatement) String() string {
 
 // RequiredPrivileges returns the privilege required to execute a CreateRetentionPolicyStatement.
 func (s *CreateRetentionPolicyStatement) RequiredPrivileges() (ExecutionPrivileges, error) {
-	return ExecutionPrivileges{{Admin: true, Name: "", Privilege: AllPrivileges}}, nil
+	return ExecutionPrivileges{{Admin: false, Name: "", Privilege: WritePrivilege}}, nil
 }
 
 // AlterRetentionPolicyStatement represents a command to alter an existing retention policy.
@@ -910,7 +910,7 @@ func (s *AlterRetentionPolicyStatement) String() string {
 
 // RequiredPrivileges returns the privilege required to execute an AlterRetentionPolicyStatement.
 func (s *AlterRetentionPolicyStatement) RequiredPrivileges() (ExecutionPrivileges, error) {
-	return ExecutionPrivileges{{Admin: true, Name: "", Privilege: AllPrivileges}}, nil
+	return ExecutionPrivileges{{Admin: false, Name: "", Privilege: WritePrivilege}}, nil
 }
 
 // FillOption represents different options for filling aggregate windows.
