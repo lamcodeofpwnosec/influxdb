@@ -62,7 +62,6 @@ fpm_common_args = "-f -s dir --log error \
 --maintainer {} \
 --directories {} \
 --directories {} \
---directories {} \
 --description \"{}\"".format(
      VENDOR,
      PACKAGE_URL,
@@ -73,7 +72,6 @@ fpm_common_args = "-f -s dir --log error \
      MAINTAINER,
      LOG_DIR,
      DATA_DIR,
-     MAN_DIR,
      DESCRIPTION)
 
 for f in CONFIGURATION_FILES:
@@ -124,7 +122,8 @@ def create_package_fs(build_root):
              SCRIPT_DIR[1:],
              CONFIG_DIR[1:],
              LOGROTATE_DIR[1:],
-             MAN_DIR[1:] ]
+             #MAN_DIR[1:],
+              ]
     for d in dirs:
         os.makedirs(os.path.join(build_root, d))
         os.chmod(os.path.join(build_root, d), 0o755)
@@ -616,8 +615,8 @@ def package(build_output, pkg_name, version, nightly=False, iteration=1, static=
                     create_package_fs(build_root)
                     package_scripts(build_root)
 
-                if platform != "windows":
-                    package_man_files(build_root)
+                #if platform != "windows":
+                #    package_man_files(build_root)
 
                 for binary in targets:
                     # Copy newly-built binaries to packaging directory
