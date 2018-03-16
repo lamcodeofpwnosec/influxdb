@@ -62,7 +62,6 @@ fpm_common_args = "-f -s dir --log error \
 --maintainer {} \
 --directories {} \
 --directories {} \
---directories {} \
 --description \"{}\"".format(
      VENDOR,
      PACKAGE_URL,
@@ -73,7 +72,6 @@ fpm_common_args = "-f -s dir --log error \
      MAINTAINER,
      LOG_DIR,
      DATA_DIR,
-     MAN_DIR,
      DESCRIPTION)
 
 for f in CONFIGURATION_FILES:
@@ -124,7 +122,8 @@ def create_package_fs(build_root):
              SCRIPT_DIR[1:],
              CONFIG_DIR[1:],
              LOGROTATE_DIR[1:],
-             MAN_DIR[1:] ]
+             # MAN_DIR[1:],
+    ]
     for d in dirs:
         os.makedirs(os.path.join(build_root, d))
         os.chmod(os.path.join(build_root, d), 0o755)
@@ -150,6 +149,7 @@ def package_scripts(build_root, config_only=False, windows=False):
 
 def package_man_files(build_root):
     """Copy and gzip man pages to the package filesystem."""
+    return  # [Aiven] Disabled, creates conflicting /usr/share/man directories
     logging.debug("Installing man pages.")
     run("make -C man/ clean install DESTDIR={}/usr".format(build_root))
     for path, dir, files in os.walk(os.path.join(build_root, MAN_DIR[1:])):
