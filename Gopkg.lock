@@ -385,15 +385,15 @@
   version = "v0.36.2"
 
 [[projects]]
-  digest = "1:488639be850ddc33969609e08f783d3e9d129c7a0f6f2c4186b11475bb94c29d"
-  name = "github.com/influxdata/influxql"
+  branch = "master"
+  digest = "1:ac08c9f0449762095e72fcf636b8b2cfd1e16fea10d4f69776efddc95dc3a7be"
+  name = "github.com/aiven/influxql"
   packages = [
     ".",
     "internal",
   ]
   pruneopts = "UT"
-  revision = "1cbfca8e56b6eaa120f5b5161e4f0d5edcc9e513"
-  version = "v1.0.0"
+  revision = "ae22a2d3c8b44f6a877d33fa9328dd0c66dd4b6d"
 
 [[projects]]
   branch = "master"
@@ -990,7 +990,7 @@
     "github.com/influxdata/flux/stdlib/influxdata/influxdb/v1",
     "github.com/influxdata/flux/stdlib/universe",
     "github.com/influxdata/flux/values",
-    "github.com/influxdata/influxql",
+    "github.com/aiven/influxql",
     "github.com/influxdata/roaring",
     "github.com/influxdata/usage-client/v1",
     "github.com/jsternberg/zap-logfmt",
