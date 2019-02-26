@@ -521,7 +521,8 @@ func (cmd *Command) download(req *snapshotter.Request, path string) error {
 	defer f.Close()
 
 	min := 2 * time.Second
-	for i := 0; i < 10; i++ {
+	max := 60 * time.Second
+	for i := 0; i < 30; i++ {
 		if err = func() error {
 			// Connect to snapshotter service.
 			conn, err := tcp.Dial("tcp", cmd.host, snapshotter.MuxHeader)
@@ -551,6 +552,9 @@ func (cmd *Command) download(req *snapshotter.Request, path string) error {
 			backoff := time.Duration(math.Pow(3.8, float64(i))) * time.Millisecond
 			if backoff < min {
 				backoff = min
+			}
+			if backoff > max {
+				backoff = max
 			}
 			cmd.StderrLogger.Printf("Download shard %v failed %s.  Waiting %v and retrying (%d)...\n", req.ShardID, err, backoff, i)
 			time.Sleep(backoff)
