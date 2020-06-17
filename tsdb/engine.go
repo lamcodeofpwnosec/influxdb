@@ -42,7 +42,7 @@ type Engine interface {
 	LoadMetadataIndex(shardID uint64, index Index) error
 
 	CreateSnapshot() (string, error)
-	Backup(w io.Writer, basePath string, since time.Time) error
+	Backup(w io.Writer, basePath string, since time.Time, keepTarOpen bool) error
 	Export(w io.Writer, basePath string, start time.Time, end time.Time) error
 	Restore(r io.Reader, basePath string) error
 	Import(r io.Reader, basePath string) error

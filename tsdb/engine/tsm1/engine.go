@@ -911,7 +911,7 @@ func (e *Engine) Free() error {
 // that new TSM files will not be able to be created in this shard while the
 // backup is running. For shards that are still acively getting writes, this
 // could cause the WAL to backup, increasing memory usage and evenutally rejecting writes.
-func (e *Engine) Backup(w io.Writer, basePath string, since time.Time) error {
+func (e *Engine) Backup(w io.Writer, basePath string, since time.Time, keepTarOpen bool) error {
 	var err error
 	var path string
 	for i := 0; i < 3; i++ {
@@ -936,7 +936,7 @@ func (e *Engine) Backup(w io.Writer, basePath string, since time.Time) error {
 		}
 	}()
 
-	return intar.Stream(w, path, basePath, intar.SinceFilterTarFile(since))
+	return intar.Stream(w, path, basePath, intar.SinceFilterTarFile(since), keepTarOpen)
 }
 
 func (e *Engine) timeStampFilterTarFile(start, end time.Time) func(f os.FileInfo, shardRelativePath, fullPath string, tw *tar.Writer) error {
@@ -1006,7 +1006,7 @@ func (e *Engine) Export(w io.Writer, basePath string, start time.Time, end time.
 		}
 	}()
 
-	return intar.Stream(w, path, basePath, e.timeStampFilterTarFile(start, end))
+	return intar.Stream(w, path, basePath, e.timeStampFilterTarFile(start, end), false)
 }
 
 func (e *Engine) filterFileToBackup(r *TSMReader, fi os.FileInfo, shardRelativePath, fullPath string, start, end int64, tw *tar.Writer) error {

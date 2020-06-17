@@ -102,7 +102,7 @@ func TestSnapshotter_RequestShardBackup(t *testing.T) {
 	defer l.Close()
 
 	var tsdb internal.TSDBStoreMock
-	tsdb.BackupShardFn = func(id uint64, since time.Time, w io.Writer) error {
+	tsdb.BackupShardFn = func(id uint64, since time.Time, keepTarOpen bool, w io.Writer) error {
 		if id != 5 {
 			t.Errorf("unexpected shard id: got=%#v want=%#v", id, 5)
 		}

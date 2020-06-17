@@ -750,7 +750,7 @@ func TestStore_BackupRestoreShard(t *testing.T) {
 
 		// Backup shard to a buffer.
 		var buf bytes.Buffer
-		if err := s0.BackupShard(100, time.Time{}, &buf); err != nil {
+		if err := s0.BackupShard(100, time.Time{}, false, &buf); err != nil {
 			t.Fatal(err)
 		}
 

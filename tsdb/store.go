@@ -1207,7 +1207,7 @@ func (s *Store) MeasurementsSketches(database string) (estimator.Sketch, estimat
 
 // BackupShard will get the shard and have the engine backup since the passed in
 // time to the writer.
-func (s *Store) BackupShard(id uint64, since time.Time, w io.Writer) error {
+func (s *Store) BackupShard(id uint64, since time.Time, keepTarOpen bool, w io.Writer) error {
 	shard := s.Shard(id)
 	if shard == nil {
 		return fmt.Errorf("shard %d doesn't exist on this server", id)
@@ -1218,7 +1218,7 @@ func (s *Store) BackupShard(id uint64, since time.Time, w io.Writer) error {
 		return err
 	}
 
-	return shard.Backup(w, path, since)
+	return shard.Backup(w, path, since, keepTarOpen)
 }
 
 func (s *Store) ExportShard(id uint64, start time.Time, end time.Time, w io.Writer) error {

@@ -1114,12 +1114,12 @@ func (s *Shard) expandSources(sources influxql.Sources) (influxql.Sources, error
 
 // Backup backs up the shard by creating a tar archive of all TSM files that
 // have been modified since the provided time. See Engine.Backup for more details.
-func (s *Shard) Backup(w io.Writer, basePath string, since time.Time) error {
+func (s *Shard) Backup(w io.Writer, basePath string, since time.Time, keepTarOpen bool) error {
 	engine, err := s.Engine()
 	if err != nil {
 		return err
 	}
-	return engine.Backup(w, basePath, since)
+	return engine.Backup(w, basePath, since, keepTarOpen)
 }
 
 func (s *Shard) Export(w io.Writer, basePath string, start time.Time, end time.Time) error {

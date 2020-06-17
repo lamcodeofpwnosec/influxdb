@@ -40,7 +40,7 @@ type Service struct {
 	}
 
 	TSDBStore interface {
-		BackupShard(id uint64, since time.Time, w io.Writer) error
+		BackupShard(id uint64, since time.Time, keepTarOpen bool, w io.Writer) error
 		ExportShard(id uint64, ExportStart time.Time, ExportEnd time.Time, w io.Writer) error
 		Shard(id uint64) *tsdb.Shard
 		ShardRelativePath(id uint64) (string, error)
@@ -132,7 +132,7 @@ func (s *Service) handleConn(conn net.Conn) error {
 
 	switch RequestType(typ[0]) {
 	case RequestShardBackup:
-		if err := s.TSDBStore.BackupShard(r.ShardID, r.Since, conn); err != nil {
+		if err := s.TSDBStore.BackupShard(r.ShardID, r.Since, r.KeepTarOpen, conn); err != nil {
 			return err
 		}
 	case RequestShardExport:
@@ -455,6 +455,7 @@ type Request struct {
 	ExportStart            time.Time
 	ExportEnd              time.Time
 	UploadSize             int64
+	KeepTarOpen            bool
 }
 
 // Response contains the relative paths for all the shards on this server
