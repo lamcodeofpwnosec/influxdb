@@ -1360,7 +1360,7 @@ type TSDBStore interface {
 	WriteToShard(shardID uint64, points []models.Point) error
 
 	RestoreShard(id uint64, r io.Reader) error
-	BackupShard(id uint64, since time.Time, w io.Writer) error
+	BackupShard(id uint64, since time.Time, keepTarOpen bool, w io.Writer) error
 
 	DeleteDatabase(name string) error
 	DeleteMeasurement(database, name string) error

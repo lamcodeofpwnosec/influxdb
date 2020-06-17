@@ -16,9 +16,16 @@ import (
 // possibly writing each file to a tar writer stream.  By default StreamFile is used, which will result in all files
 // being written.  A custom writeFunc can be passed so that each file may be written, modified+written, or skipped
 // depending on the custom logic.
-func Stream(w io.Writer, dir, relativePath string, writeFunc func(f os.FileInfo, shardRelativePath, fullPath string, tw *tar.Writer) error) error {
+func Stream(w io.Writer, dir, relativePath string, writeFunc func(f os.FileInfo, shardRelativePath, fullPath string, tw *tar.Writer) error, keepTarOpen bool) error {
 	tw := tar.NewWriter(w)
-	defer tw.Close()
+	// The caller may want to make the data we generate to be a part of an existing tar, in which case we do not want
+	// to write the trailing zero blocks that Close does but instead just ensure the shard data has been fully flushed.
+	// Close does not release any resources so not calling it has no ill effects from that point-of-view.
+	if keepTarOpen {
+		defer tw.Flush()
+	} else {
+		defer tw.Close()
+	}
 
 	if writeFunc == nil {
 		writeFunc = StreamFile
