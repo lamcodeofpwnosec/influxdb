@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,12 +14,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
 	gzip "github.com/klauspost/pgzip"
 
 	"github.com/influxdata/influxdb/cmd/influxd/backup_util"
+	"github.com/influxdata/influxdb/pkg/file"
 	tarstream "github.com/influxdata/influxdb/pkg/tar"
 	"github.com/influxdata/influxdb/services/meta"
 	"github.com/influxdata/influxdb/services/snapshotter"
@@ -33,6 +36,7 @@ type Command struct {
 	// Standard input/output, overridden for testing.
 	Stderr io.Writer
 	Stdout io.Writer
+	Stdin  io.Reader
 
 	host   string
 	client *snapshotter.Client
@@ -47,6 +51,7 @@ type Command struct {
 	shard               uint64
 	portable            bool
 	online              bool
+	readFromStdin       bool
 	manifestMeta        *backup_util.MetaEntry
 	manifestFiles       map[uint64]*backup_util.Entry
 
@@ -61,6 +66,7 @@ func NewCommand() *Command {
 	return &Command{
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
+		Stdin:      os.Stdin,
 		MetaConfig: meta.NewConfig(),
 	}
 }
@@ -78,6 +84,8 @@ func (cmd *Command) Run(args ...string) error {
 		return cmd.runOnlinePortable()
 	} else if cmd.online {
 		return cmd.runOnlineLegacy()
+	} else if cmd.readFromStdin {
+		return cmd.runStdinTar()
 	} else {
 		return cmd.runOffline()
 	}
@@ -85,7 +93,7 @@ func (cmd *Command) Run(args ...string) error {
 
 func (cmd *Command) runOffline() error {
 	if cmd.metadir != "" {
-		if err := cmd.unpackMeta(); err != nil {
+		if err := cmd.findAndUnpackMeta(); err != nil {
 			return err
 		}
 	}
@@ -96,6 +104,96 @@ func (cmd *Command) runOffline() error {
 		return cmd.unpackRetention()
 	} else if cmd.datadir != "" {
 		return cmd.unpackDatabase()
+	}
+	return nil
+}
+
+func (cmd *Command) runStdinTar() error {
+	if cmd.datadir == "" {
+		return fmt.Errorf("datadir must be specified when restoring from stdin")
+	}
+
+	var foundMeta bytes.Buffer
+	var foundMetaName string
+	// Manually created tar files might have all files in some sub-directory so accept also <whatever>/meta(.index)
+	metaRegex, err := regexp.Compile(fmt.Sprintf("^(?:.+/)?(%s(?:\\.\\d+)?)$", regexp.QuoteMeta(backup_util.Metafile)))
+	if err != nil {
+		return err
+	}
+	// Manually created tar files might have all files in some sub-directory
+	shardRegex, err := regexp.Compile("^(?:.+/)?([^/\\.]+)\\.(.*)\\.(\\d+).\\d+$")
+	if err != nil {
+		return err
+	}
+	tsmRegex, err := regexp.Compile("^([^/\\.]+)/(.*)/(\\d+)/(.*)$")
+	if err != nil {
+		return err
+	}
+
+	tarReader := tar.NewReader(cmd.Stdin)
+	for {
+		hdr, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if hdr.Typeflag == tar.TypeDir {
+			// Just skip over directories, we'll create those recursively when encountering actual files inside of them
+			continue
+		}
+		if matches := metaRegex.FindStringSubmatch(hdr.Name); matches != nil {
+			metaFileName := matches[1]
+			if foundMetaName == "" || metaFileName > foundMetaName {
+				foundMetaName = metaFileName
+				cmd.StdoutLogger.Printf("Found metadata file %s (%s), processing later", foundMetaName, metaFileName)
+				foundMeta.Reset()
+				if _, err = io.Copy(&foundMeta, tarReader); err != nil {
+					return err
+				}
+			} else {
+				cmd.StdoutLogger.Printf("Ignoring meta file %s that is less than current meta file %s", hdr.Name, foundMetaName)
+			}
+		} else if matches := shardRegex.FindStringSubmatch(hdr.Name); matches != nil {
+			// This is tar file containing contents of an individual shard. The 'backup -write-to-stdout' command does not
+			// generate these but this is presumably tar created manually from regular backup output
+			shardPath := filepath.Join(cmd.datadir, matches[1], matches[2], strings.Trim(matches[3], "0"))
+			cmd.StdoutLogger.Printf("Found shard tar %s, unpacking to %s", hdr.Name, shardPath)
+			if err = os.MkdirAll(shardPath, 0755); err != nil {
+				return err
+			}
+			if err = tarstream.Restore(tarReader, shardPath); err != nil {
+				return err
+			}
+		} else if matches := tsmRegex.FindStringSubmatch(hdr.Name); matches != nil {
+			fileNameParts := append([]string{cmd.datadir, matches[1], matches[2], strings.Trim(matches[3], "0")}, strings.Split(matches[4], "/")...)
+			restorePath := filepath.Join(fileNameParts...)
+			cmd.StdoutLogger.Printf("Found regular file %s, copying to target path %s", hdr.Name, restorePath)
+			if err = os.MkdirAll(filepath.Dir(restorePath), 0755); err != nil {
+				return err
+			}
+			if _, err := os.Stat(restorePath); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("target file %s already exists", restorePath)
+			}
+			if err = tarstream.CreateFileFromTar(restorePath, tarReader, hdr); err != nil {
+				return err
+			}
+		} else {
+			cmd.StdoutLogger.Printf("package file %s not recognized, skipping", hdr.Name)
+		}
+	}
+
+	if foundMeta.Len() > 0 {
+		if cmd.metadir == "" {
+			cmd.StdoutLogger.Printf("Found metadata from backup but no metadir specified, not restoring metadata")
+		} else {
+			cmd.StdoutLogger.Printf("Unpacking metadata from %s", foundMetaName)
+			if err = cmd.unpackMeta(&foundMeta); err != nil {
+				return err
+			}
+		}
+	} else if cmd.metadir != "" {
+		// If metadir was given then caller presumably expected metadata to be extracted, consider
+		// missing metadata to be an error
+		return fmt.Errorf("metadir specified but no metadata found from backup")
 	}
 	return nil
 }
@@ -146,6 +244,7 @@ func (cmd *Command) parseFlags(args []string) error {
 	fs.Uint64Var(&cmd.shard, "shard", 0, "")
 	fs.BoolVar(&cmd.online, "online", false, "")
 	fs.BoolVar(&cmd.portable, "portable", false, "")
+	fs.BoolVar(&cmd.readFromStdin, "read-from-stdin", false, "")
 	fs.SetOutput(cmd.Stdout)
 	fs.Usage = cmd.printUsage
 	if err := fs.Parse(args); err != nil {
@@ -156,15 +255,21 @@ func (cmd *Command) parseFlags(args []string) error {
 	cmd.MetaConfig.Dir = cmd.metadir
 	cmd.client = snapshotter.NewClient(cmd.host)
 
-	// Require output path.
-	cmd.backupFilesPath = fs.Arg(0)
-	if cmd.backupFilesPath == "" {
-		return fmt.Errorf("path with backup files required")
-	}
+	// Require output path if not restoring from stdin
+	if cmd.readFromStdin {
+		if fs.NArg() != 0 {
+			return errors.New("not expecting path when -read-from-stdin is specified")
+		}
+	} else {
+		cmd.backupFilesPath = fs.Arg(0)
+		if cmd.backupFilesPath == "" {
+			return fmt.Errorf("path with backup files required")
+		}
 
-	fi, err := os.Stat(cmd.backupFilesPath)
-	if err != nil || !fi.IsDir() {
-		return fmt.Errorf("backup path should be a valid directory: %s", cmd.backupFilesPath)
+		fi, err := os.Stat(cmd.backupFilesPath)
+		if err != nil || !fi.IsDir() {
+			return fmt.Errorf("backup path should be a valid directory: %s", cmd.backupFilesPath)
+		}
 	}
 
 	if cmd.portable || cmd.online {
@@ -183,6 +288,9 @@ func (cmd *Command) parseFlags(args []string) error {
 		}
 
 		if cmd.portable {
+			if cmd.readFromStdin {
+				return fmt.Errorf("portable and read-from-stdin are mutually exclusive")
+			}
 			var err error
 			cmd.manifestMeta, cmd.manifestFiles, err = backup_util.LoadIncremental(cmd.backupFilesPath)
 			if err != nil {
@@ -218,9 +326,9 @@ func (cmd *Command) parseFlags(args []string) error {
 	return nil
 }
 
-// unpackMeta reads the metadata from the backup directory and initializes a raft
+// findAndUnpackMeta reads the metadata from the backup directory and initializes a raft
 // cluster and replaces the root metadata.
-func (cmd *Command) unpackMeta() error {
+func (cmd *Command) findAndUnpackMeta() error {
 	// find the meta file
 	metaFiles, err := filepath.Glob(filepath.Join(cmd.backupFilesPath, backup_util.Metafile+".*"))
 	if err != nil {
@@ -228,7 +336,11 @@ func (cmd *Command) unpackMeta() error {
 	}
 
 	if len(metaFiles) == 0 {
-		return fmt.Errorf("no metastore backups in %s", cmd.backupFilesPath)
+		// If this backup has been created with -write-to-stdout the file is named just "meta"
+		metaFiles, err = filepath.Glob(filepath.Join(cmd.backupFilesPath, backup_util.Metafile))
+		if err != nil || len(metaFiles) == 0 {
+			return fmt.Errorf("no metastore backups in %s", cmd.backupFilesPath)
+		}
 	}
 
 	latest := metaFiles[len(metaFiles)-1]
@@ -239,12 +351,20 @@ func (cmd *Command) unpackMeta() error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, f); err != nil {
 		return fmt.Errorf("copy: %s", err)
 	}
 
+	return cmd.unpackMeta(&buf)
+}
+
+func (cmd *Command) unpackMeta(buf *bytes.Buffer) error {
+	if buf.Len() < 24 {
+		return fmt.Errorf("invalid metadata file (too short)")
+	}
 	b := buf.Bytes()
 	var i int
 
@@ -298,7 +418,7 @@ func (cmd *Command) unpackMeta() error {
 	}
 
 	// remove the raft.db file if it exists
-	err = os.Remove(filepath.Join(cmd.metadir, "raft.db"))
+	err := os.Remove(filepath.Join(cmd.metadir, "raft.db"))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -483,7 +603,94 @@ func (cmd *Command) unpackDatabase() error {
 
 	// find the database backup files
 	pat := filepath.Join(cmd.backupFilesPath, cmd.sourceDatabase)
-	return cmd.unpackFiles(pat + ".*")
+	count, err := cmd.unpackFiles(pat + ".*")
+	if err != nil {
+		return err
+	}
+
+	// If the output directory contents have been extracted from a tar that was created with
+	// -write-to-stdout it will contain tsm files directly without the extra tar wrapping,
+	// copy those as well to support restoring such backup without using -read-from-stdin
+	backupFiles := []string{}
+	err = filepath.Walk(filepath.Join(cmd.backupFilesPath, cmd.sourceDatabase), func(path string, f os.FileInfo, err error) error {
+		if f.Mode().IsRegular() {
+			backupFiles = append(backupFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	pathSep := string(os.PathSeparator)
+	pathSepEnc := regexp.QuoteMeta(pathSep)
+	tsmRegex, err := regexp.Compile(fmt.Sprintf("^%s%s(.*)%s(\\d+)%s(.*)$", regexp.QuoteMeta(cmd.sourceDatabase), pathSepEnc, pathSepEnc, pathSepEnc))
+	if err != nil {
+		return err
+	}
+
+	prefix := cmd.backupFilesPath
+	if !strings.HasSuffix(prefix, pathSep) {
+		prefix += pathSep
+	}
+	for _, fn := range backupFiles {
+		relativeName := strings.Replace(fn, prefix, "", 1)
+		if matches := tsmRegex.FindStringSubmatch(relativeName); matches != nil {
+			fileNameParts := append([]string{cmd.datadir, cmd.sourceDatabase, matches[1], strings.Trim(matches[2], "0")}, strings.Split(matches[3], pathSep)...)
+			restorePath := filepath.Join(fileNameParts...)
+			if err = cmd.copyFileIfRegular(fn, restorePath); err != nil {
+				return err
+			}
+			count++
+		}
+	}
+
+	if count == 0 {
+		return fmt.Errorf("no backup files for %s in %s", pat, cmd.backupFilesPath)
+	}
+
+	return nil
+}
+
+func (cmd *Command) copyFileIfRegular(sourceName, targetName string) error {
+	stat, err := os.Stat(sourceName)
+	if err != nil {
+		return fmt.Errorf("Failed to stat %s: %s", sourceName, err)
+	}
+	if !stat.Mode().IsRegular() {
+		return nil
+	}
+	cmd.StdoutLogger.Printf("Found regular file %s, copying to target path %s", sourceName, targetName)
+	if err = os.MkdirAll(filepath.Dir(targetName), 0755); err != nil {
+		return err
+	}
+	if _, err = os.Stat(targetName); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("target file %s already exists", targetName)
+	}
+
+	inFile, err := os.Open(sourceName)
+	if err != nil {
+		return err
+	}
+	defer inFile.Close()
+
+	tmp := targetName + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_RDWR, stat.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, inFile); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return file.RenameFile(tmp, targetName)
 }
 
 // unpackRetention will look for all backup files in the path matching this retention
@@ -497,7 +704,14 @@ func (cmd *Command) unpackRetention() error {
 
 	// find the retention backup files
 	pat := filepath.Join(cmd.backupFilesPath, cmd.sourceDatabase)
-	return cmd.unpackFiles(fmt.Sprintf("%s.%s.*", pat, cmd.backupRetention))
+	count, err := cmd.unpackFiles(fmt.Sprintf("%s.%s.*", pat, cmd.backupRetention))
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("no backup files for %s in %s", pat, cmd.backupFilesPath)
+	}
+	return nil
 }
 
 // unpackShard will look for all backup files in the path matching this shard ID
@@ -517,29 +731,32 @@ func (cmd *Command) unpackShard(shard uint64) error {
 
 	// find the shard backup files
 	pat := filepath.Join(cmd.backupFilesPath, fmt.Sprintf(backup_util.BackupFilePattern, cmd.sourceDatabase, cmd.backupRetention, id))
-	return cmd.unpackFiles(pat + ".*")
+	count, err := cmd.unpackFiles(pat + ".*")
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("no backup files for %s in %s", pat, cmd.backupFilesPath)
+	}
+	return nil
 }
 
 // unpackFiles will look for backup files matching the pattern and restore them to the data dir
-func (cmd *Command) unpackFiles(pat string) error {
+func (cmd *Command) unpackFiles(pat string) (int, error) {
 	cmd.StdoutLogger.Printf("Restoring offline from backup %s\n", pat)
 
 	backupFiles, err := filepath.Glob(pat)
 	if err != nil {
-		return err
-	}
-
-	if len(backupFiles) == 0 {
-		return fmt.Errorf("no backup files for %s in %s", pat, cmd.backupFilesPath)
+		return 0, err
 	}
 
 	for _, fn := range backupFiles {
 		if err := cmd.unpackTar(fn); err != nil {
-			return err
+			return 0, err
 		}
 	}
 
-	return nil
+	return len(backupFiles), nil
 }
 
 // unpackTar will restore a single tar archive to the data dir
@@ -568,7 +785,7 @@ func (cmd *Command) printUsage() {
 Uses backup copies from the specified PATH to restore databases or specific shards from InfluxDB OSS
   or InfluxDB Enterprise to an InfluxDB OSS instance.
 
-Usage: influxd restore -portable [options] PATH
+Usage: influxd restore -portable [options] [PATH]
 
 Note: Restore using the '-portable' option consumes files in an improved Enterprise-compatible 
   format that includes a file manifest.
@@ -592,7 +809,13 @@ Options:
             is set. If not given, the '-rp <rp_name>' value is used.
     -shard <id>
             Identifier of the shard to be restored. Optional. If specified, then '-db <db_name>' and '-rp <rp_name>' are
-            required.
+			required.
+    -datadir <path>
+            Directory where to restore data files
+    -metadir <path>
+            Directory where to restore meta files
+    -read-from-stdin
+            Read backup from stdin instead of restoring from disk. Input must be a tar created with -write-to-stdout
     PATH
             Path to directory containing the backup files.
 
