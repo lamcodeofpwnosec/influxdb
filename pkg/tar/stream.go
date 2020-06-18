@@ -145,6 +145,11 @@ func extractFile(tr *tar.Reader, dir string) error {
 	}
 
 	destPath := filepath.Join(dir, relativePath)
+	return CreateFileFromTar(destPath, tr, hdr)
+}
+
+// CreateFileFromTar copies the contents of current file in the tar into local file via a temp file
+func CreateFileFromTar(destPath string, tr *tar.Reader, hdr *tar.Header) error {
 	tmp := destPath + ".tmp"
 
 	// Create new file on disk.
