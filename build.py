@@ -707,7 +707,7 @@ def package(build_output, pkg_name, version, nightly=False, iteration=1, static=
                     elif package_type not in ['zip', 'tar'] and static or "static_" in arch:
                         logging.info("Skipping package type '{}' for static builds.".format(package_type))
                     else:
-                        fpm_command = "fpm {} --name {} -a {} -t {} --version {} --iteration {} -C {} -p {} ".format(
+                        fpm_command = "fpm {} --name {} -a {} -t {} --version {} --epoch 1000 --iteration {} -C {} -p {} ".format(
                             fpm_common_args,
                             name,
                             package_arch,
