@@ -155,7 +155,7 @@ func (cmd *Command) runStdinTar() error {
 		} else if matches := shardRegex.FindStringSubmatch(hdr.Name); matches != nil {
 			// This is tar file containing contents of an individual shard. The 'backup -write-to-stdout' command does not
 			// generate these but this is presumably tar created manually from regular backup output
-			shardPath := filepath.Join(cmd.datadir, matches[1], matches[2], strings.Trim(matches[3], "0"))
+			shardPath := filepath.Join(cmd.datadir, matches[1], matches[2], strings.TrimLeft(matches[3], "0"))
 			cmd.StdoutLogger.Printf("Found shard tar %s, unpacking to %s", hdr.Name, shardPath)
 			if err = os.MkdirAll(shardPath, 0755); err != nil {
 				return err
@@ -164,7 +164,7 @@ func (cmd *Command) runStdinTar() error {
 				return err
 			}
 		} else if matches := tsmRegex.FindStringSubmatch(hdr.Name); matches != nil {
-			fileNameParts := append([]string{cmd.datadir, matches[1], matches[2], strings.Trim(matches[3], "0")}, strings.Split(matches[4], "/")...)
+			fileNameParts := append([]string{cmd.datadir, matches[1], matches[2], strings.TrimLeft(matches[3], "0")}, strings.Split(matches[4], "/")...)
 			restorePath := filepath.Join(fileNameParts...)
 			cmd.StdoutLogger.Printf("Found regular file %s, copying to target path %s", hdr.Name, restorePath)
 			if err = os.MkdirAll(filepath.Dir(restorePath), 0755); err != nil {
@@ -640,7 +640,7 @@ func (cmd *Command) unpackDatabase() error {
 	for _, fn := range backupFiles {
 		relativeName := strings.Replace(fn, prefix, "", 1)
 		if matches := tsmRegex.FindStringSubmatch(relativeName); matches != nil {
-			fileNameParts := append([]string{cmd.datadir, cmd.sourceDatabase, matches[1], strings.Trim(matches[2], "0")}, strings.Split(matches[3], pathSep)...)
+			fileNameParts := append([]string{cmd.datadir, cmd.sourceDatabase, matches[1], strings.TrimLeft(matches[2], "0")}, strings.Split(matches[3], pathSep)...)
 			restorePath := filepath.Join(fileNameParts...)
 			if err = cmd.copyFileIfRegular(fn, restorePath); err != nil {
 				return err
@@ -777,7 +777,7 @@ func (cmd *Command) unpackTar(tarFile string) error {
 		return fmt.Errorf("backup tarfile name incorrect format")
 	}
 
-	shardPath := filepath.Join(cmd.datadir, pathParts[0], pathParts[1], strings.Trim(pathParts[2], "0"))
+	shardPath := filepath.Join(cmd.datadir, pathParts[0], pathParts[1], strings.TrimLeft(pathParts[2], "0"))
 	os.MkdirAll(shardPath, 0755)
 
 	return tarstream.Restore(f, shardPath)
