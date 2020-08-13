@@ -260,7 +260,7 @@ func TestEngine_Backup(t *testing.T) {
 	}
 
 	b := bytes.NewBuffer(nil)
-	if err := e.Backup(b, "", time.Unix(0, 0)); err != nil {
+	if err := e.Backup(b, "", time.Unix(0, 0), false); err != nil {
 		t.Fatalf("failed to backup: %s", err.Error())
 	}
 
@@ -306,7 +306,7 @@ func TestEngine_Backup(t *testing.T) {
 	}
 
 	b = bytes.NewBuffer(nil)
-	if err := e.Backup(b, "", lastBackup); err != nil {
+	if err := e.Backup(b, "", lastBackup, false); err != nil {
 		t.Fatalf("failed to backup: %s", err.Error())
 	}
 
@@ -380,7 +380,7 @@ func TestEngine_Export(t *testing.T) {
 	}
 
 	var bkBuf bytes.Buffer
-	if err := e.Backup(&bkBuf, "", time.Unix(0, 0)); err != nil {
+	if err := e.Backup(&bkBuf, "", time.Unix(0, 0), false); err != nil {
 		t.Fatalf("failed to backup: %s", err.Error())
 	}
 
