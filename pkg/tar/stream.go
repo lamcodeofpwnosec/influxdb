@@ -38,6 +38,14 @@ func Stream(w io.Writer, dir, relativePath string, writeFunc func(f os.FileInfo,
 
 		// Skip adding an entry for the root dir
 		if dir == path && f.IsDir() {
+			if keepTarOpen {
+				// It is possible the shard is otherwise empty. To avoid shard backup to be considered failed in that
+				// case always write an entry for the root directory. The restore command will ignore it (all directories
+				// are categorically ignored) but it causes some data to be returned.
+				// This is necessary as the tar generated from here is directly added as part of the backup tar and we
+				// cannot add end of tar zero bytes to signal some data was returned.
+				return writeFunc(f, relativePath, path, tw)
+			}
 			return nil
 		}
 
