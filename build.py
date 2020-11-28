@@ -64,7 +64,6 @@ fpm_common_args = "-f -s dir --log error \
 --maintainer {} \
 --directories {} \
 --directories {} \
---directories {} \
 --rpm-attr 755,{},{}:{} \
 --rpm-attr 755,{},{}:{} \
 --description \"{}\"".format(
@@ -77,7 +76,6 @@ fpm_common_args = "-f -s dir --log error \
      MAINTAINER,
      LOG_DIR,
      DATA_DIR,
-     MAN_DIR,
      USER, GROUP, LOG_DIR,
      USER, GROUP, DATA_DIR,
      DESCRIPTION)
@@ -156,6 +154,7 @@ def package_scripts(build_root, config_only=False, windows=False):
 
 def package_man_files(build_root):
     """Copy and gzip man pages to the package filesystem."""
+    return  # [Aiven] Disabled, creates conflicting /usr/share/man directories
     logging.debug("Installing man pages.")
     run("make -C man/ clean install DESTDIR={}/usr".format(build_root))
     for path, dir, files in os.walk(os.path.join(build_root, MAN_DIR[1:])):
