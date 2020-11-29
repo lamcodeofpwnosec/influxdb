@@ -15,7 +15,7 @@ import (
 
 	"github.com/influxdata/influxdb/client"
 	"github.com/influxdata/influxdb/cmd/influx/cli"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 	"github.com/peterh/liner"
 )
 

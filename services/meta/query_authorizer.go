@@ -3,7 +3,7 @@ package meta
 import (
 	"fmt"
 
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 // QueryAuthorizer determines whether a user is authorized to execute a given query.

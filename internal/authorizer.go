@@ -2,7 +2,7 @@ package internal
 
 import (
 	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 // AuthorizerMock is a mockable implementation of a query.Authorizer.

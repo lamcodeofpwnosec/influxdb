@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 type SeriesCursor interface {

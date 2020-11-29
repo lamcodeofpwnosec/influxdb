@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/influxdata/influxdb/models"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 // guard lets one match a set of points and block until they are done.

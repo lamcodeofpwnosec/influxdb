@@ -7,7 +7,7 @@ import (
 	"github.com/influxdata/influxdb/services/storage"
 	"github.com/influxdata/influxdb/storage/reads"
 	"github.com/influxdata/influxdb/storage/reads/datatypes"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 func TestHasSingleMeasurementNoOR(t *testing.T) {
