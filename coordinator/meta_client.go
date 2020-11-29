@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/influxdata/influxdb/services/meta"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 // MetaClient is an interface for accessing meta data.

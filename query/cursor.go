@@ -4,7 +4,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 var NullFloat interface{} = (*float64)(nil)

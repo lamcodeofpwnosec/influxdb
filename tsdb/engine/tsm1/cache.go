@@ -10,7 +10,7 @@ import (
 
 	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/tsdb"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 	"go.uber.org/zap"
 )
 

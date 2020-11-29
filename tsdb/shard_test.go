@@ -29,7 +29,7 @@ import (
 	_ "github.com/influxdata/influxdb/tsdb/engine"
 	_ "github.com/influxdata/influxdb/tsdb/index"
 	"github.com/influxdata/influxdb/tsdb/index/inmem"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 )
 
 func TestShardWriteAndIndex(t *testing.T) {

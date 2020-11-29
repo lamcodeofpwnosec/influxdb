@@ -35,7 +35,7 @@ import (
 	_ "github.com/influxdata/influxdb/tsdb/index"
 	"github.com/influxdata/influxdb/tsdb/index/inmem"
 	"github.com/influxdata/influxdb/tsdb/index/tsi1"
-	"github.com/influxdata/influxql"
+	"github.com/aiven/influxql"
 	"go.uber.org/zap"
 )
 
