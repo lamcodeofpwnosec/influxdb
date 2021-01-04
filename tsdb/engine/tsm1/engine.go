@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/aiven/influxql"
 	"github.com/influxdata/influxdb/logger"
 	"github.com/influxdata/influxdb/models"
 	"github.com/influxdata/influxdb/pkg/bytesutil"
@@ -35,7 +36,6 @@ import (
 	_ "github.com/influxdata/influxdb/tsdb/index"
 	"github.com/influxdata/influxdb/tsdb/index/inmem"
 	"github.com/influxdata/influxdb/tsdb/index/tsi1"
-	"github.com/aiven/influxql"
 	"go.uber.org/zap"
 )
 
@@ -914,9 +914,13 @@ func (e *Engine) Free() error {
 func (e *Engine) Backup(w io.Writer, basePath string, since time.Time, keepTarOpen bool) error {
 	var err error
 	var path string
+L:
 	for i := 0; i < 3; i++ {
 		path, err = e.CreateSnapshot()
-		if err != nil {
+		switch err {
+		case nil:
+			break L
+		default:
 			switch err {
 			case ErrSnapshotInProgress:
 				backoff := time.Duration(math.Pow(32, float64(i))) * time.Millisecond
