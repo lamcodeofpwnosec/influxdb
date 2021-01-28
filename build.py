@@ -127,8 +127,7 @@ def create_package_fs(build_root):
              DATA_DIR[1:],
              SCRIPT_DIR[1:],
              CONFIG_DIR[1:],
-             LOGROTATE_DIR[1:],
-             MAN_DIR[1:] ]
+             LOGROTATE_DIR[1:] ]
     for d in dirs:
         os.makedirs(os.path.join(build_root, d))
         os.chmod(os.path.join(build_root, d), 0o755)
