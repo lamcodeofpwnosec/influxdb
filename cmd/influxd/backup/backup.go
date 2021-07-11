@@ -227,7 +227,7 @@ func (cmd *Command) parseFlags(args []string) (err error) {
 	} else {
 		// Ensure that only one arg is specified.
 		if fs.NArg() != 1 {
-			return errors.New("Exactly one backup path is required.")
+			return errors.New("exactly one backup path is required")
 		}
 		cmd.path = fs.Arg(0)
 
@@ -452,7 +452,7 @@ func (cmd *Command) backupMetastore() error {
 	}
 
 	if buffer.Len() < 8 {
-		return errors.New("Not enough bytes data to verify metadata")
+		return errors.New("not enough bytes data to verify metadata")
 	}
 
 	magic := binary.BigEndian.Uint64(buffer.Bytes()[0:8])
