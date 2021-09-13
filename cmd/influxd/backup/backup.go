@@ -63,6 +63,7 @@ type Command struct {
 	manifest         backup_util.Manifest
 	portableFileBase string
 	continueOnError  bool
+	dataDir          string
 	writeToStdout    bool
 
 	BackupFiles []string
@@ -164,6 +165,7 @@ func (cmd *Command) parseFlags(args []string) (err error) {
 	fs.StringVar(&endArg, "end", "", "")
 	fs.BoolVar(&cmd.portable, "portable", false, "")
 	fs.BoolVar(&cmd.continueOnError, "skip-errors", false, "")
+	fs.StringVar(&cmd.dataDir, "data-dir", "", "")
 	fs.BoolVar(&cmd.writeToStdout, "write-to-stdout", false, "")
 
 	fs.SetOutput(cmd.Stderr)
@@ -227,7 +229,7 @@ func (cmd *Command) parseFlags(args []string) (err error) {
 	} else {
 		// Ensure that only one arg is specified.
 		if fs.NArg() != 1 {
-			return errors.New("Exactly one backup path is required.")
+			return errors.New("exactly one backup path is required")
 		}
 		cmd.path = fs.Arg(0)
 
@@ -452,7 +454,7 @@ func (cmd *Command) backupMetastore() error {
 	}
 
 	if buffer.Len() < 8 {
-		return errors.New("Not enough bytes data to verify metadata")
+		return errors.New("not enough bytes data to verify metadata")
 	}
 
 	magic := binary.BigEndian.Uint64(buffer.Bytes()[0:8])
@@ -576,6 +578,14 @@ func (cmd *Command) downloadToWriter(req *snapshotter.Request, writer io.Writer)
 			if numWritten > 0 {
 				return numWritten, err
 			}
+			if len(cmd.dataDir) > 0 {
+				fullPath := filepath.Join(cmd.dataDir, req.BackupDatabase, req.BackupRetentionPolicy, strconv.FormatUint(req.ShardID, 10))
+				_, err2 := os.Stat(fullPath)
+				if os.IsNotExist(err2) && numWritten == 0 {
+					cmd.StderrLogger.Printf("error (%s) when backing up db: %s, rp %s, shard %d. File not found and no data processed. Continuing backup on remaining shards", err, req.BackupDatabase, req.BackupRetentionPolicy, req.ShardID)
+					return 0, nil
+				}
+			}
 			backoff := time.Duration(math.Pow(3.8, float64(i))) * time.Millisecond
 			if backoff < min {
 				backoff = min
@@ -662,6 +672,9 @@ Usage: influxd backup [options] [PATH]
             Recommend using '-start <timestamp>' instead.
     -skip-errors 
             Optional flag to continue backing up the remaining shards when the current shard fails to backup. 
+	-data-dir
+			Directory containing data files. Used for checking if backing up shard failed because the shard
+			no longer exists.
     -write-to-stdout
             Generate a tar file into stdout, nothing is written on disk
 `)
