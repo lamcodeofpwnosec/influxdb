@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/gogo/protobuf/types"
@@ -125,6 +126,58 @@ func ReadRequestToInfluxStorageRequest(req *remote.ReadRequest, db, rp string) (
 	return sreq, nil
 }
 
+// The Aiven version of `ReadRequestToInfluxStorageRequest()`.
+func ReadRequestToInfluxStorageRequestAiven(req *remote.ReadRequest, db, rp string) (*datatypes.ReadFilterRequest, error) {
+	if len(req.Queries) != 1 {
+		return nil, errors.New("Prometheus read endpoint currently only supports one query at a time")
+	}
+	q := req.Queries[0]
+
+	src, err := types.MarshalAny(&storage.ReadSource{Database: db, RetentionPolicy: rp})
+	if err != nil {
+		return nil, err
+	}
+
+	sreq := &datatypes.ReadFilterRequest{
+		ReadSource: src,
+		Range: datatypes.TimestampRange{
+			Start: time.Unix(0, q.StartTimestampMs*int64(time.Millisecond)).UnixNano(),
+			End:   time.Unix(0, q.EndTimestampMs*int64(time.Millisecond)).UnixNano(),
+		},
+	}
+
+	pred, err := predicateFromMatchersAiven(q.Matchers)
+	if err != nil {
+		return nil, err
+	}
+
+	sreq.Predicate = pred
+	return sreq, nil
+}
+
+func AddMetricName(tags models.Tags) models.Tags {
+	var t models.Tags
+	var measurement string
+	var field string
+	for _, tt := range tags {
+		if string(tt.Key) == measurementTagKey {
+			measurement = string(tt.Value)
+		} else if string(tt.Key) == fieldTagKey {
+			field = string(tt.Value)
+		}
+		t = append(t, tt)
+	}
+
+	r := strings.NewReplacer(".", "_", "-", "_")
+	name := r.Replace(measurement + "_" + field)
+	// TODO: omit `"_" + field` when `filed == "value"`
+	t = append([]models.Tag{
+			{Key:   []byte(prometheusNameTag), Value: []byte(name)},
+		}, t...)
+
+	return t
+}
+
 // RemoveInfluxSystemTags will remove tags that are Influx internal (_measurement and _field)
 func RemoveInfluxSystemTags(tags models.Tags) models.Tags {
 	var t models.Tags
@@ -154,6 +207,22 @@ func predicateFromMatchers(matchers []*remote.LabelMatcher) (*datatypes.Predicat
 			Value:    &datatypes.Node_Logical_{Logical: datatypes.LogicalAnd},
 			Children: []*datatypes.Node{left, right},
 		},
+	}, nil
+}
+
+// The Aiven version of `predicateFromMatchers()`.
+func predicateFromMatchersAiven(matchers []*remote.LabelMatcher) (*datatypes.Predicate, error) {
+	if len(matchers) == 0 {
+		return nil, nil
+	}
+
+	root, err := nodeFromMatchers(matchers)
+	if err != nil {
+		return nil, err
+	}
+
+	return &datatypes.Predicate{
+		Root: root,
 	}, nil
 }
 
