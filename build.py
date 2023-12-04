@@ -540,7 +540,7 @@ def build(version=None,
             build_command += "-race "
         if len(tags) > 0:
             build_command += "-tags {} ".format(','.join(tags))
-        if "1.4" in get_go_version():
+        if "go1.4." in get_go_version():
             if static:
                 build_command += "-ldflags=\"-s -X main.version {} -X main.branch {} -X main.commit {}\" ".format(version,
                                                                                                                   get_current_branch(),
