@@ -20,7 +20,10 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     xmlto \
     docbook-xsl
 
-RUN gem install fpm
+RUN gem install ffi -f
+RUN gem install childprocess -f
+RUN gem install dotenv -v 2.7.6
+RUN gem install fpm -v 1.8.1
 
 # setup environment
 ENV GO_VERSION  1.13.8

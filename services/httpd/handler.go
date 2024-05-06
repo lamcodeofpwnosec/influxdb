@@ -203,6 +203,10 @@ func NewHandler(c Config) *Handler {
 			"prometheus-read", // Prometheus remote read
 			"POST", "/api/v1/prom/read", true, true, h.servePromRead,
 		},
+		Route{
+			"prometheus-read-aiven", // Prometheus remote read (aiven version)
+			"POST", "/api/v1/aiven/read", true, true, h.servePromReadAiven,
+		},
 		Route{ // Ping
 			"ping",
 			"GET", "/ping", false, true, authWrapper(h.servePing),
@@ -1338,6 +1342,168 @@ func (h *Handler) servePromRead(w http.ResponseWriter, r *http.Request, user met
 				zap.String("cursor_type", unsupportedCursor),
 				zap.Stringer("series", tags),
 			)
+		}
+	}
+
+	respond(resp)
+}
+
+
+// The Aiven version of the remote read endpoint. This handler is different
+// different from `servePromRead()` in the following ways:
+//   - Match all data, not only records containing a field named "_field".
+//     This means that servePromReadAiven returns data written via
+//     Aiven service integrations, unlike the native handler.
+//   - Return data for all field types except for "string".
+//     (See also the note about type conversion below).
+//   - Matchers are optional (which aligns with how remote read works for
+//     Prometheus or M3DB)
+//   - Include measurement names as "__name__" field (`servePromRead()`
+//     does not return measurement names at all).
+//
+// NOTE: int64/uint64 values may overflow when converted to float64.
+// I do not think it is going to be an issue in practice, unless someone
+// stores 64-bit hash codes in InfluxDB, but it is something worth to be
+// aware of.
+//
+func (h *Handler) servePromReadAiven(w http.ResponseWriter, r *http.Request, user meta.User) {
+	compressed, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		h.httpError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	reqBuf, err := snappy.Decode(nil, compressed)
+	if err != nil {
+		h.httpError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var req remote.ReadRequest
+	if err := proto.Unmarshal(reqBuf, &req); err != nil {
+		h.httpError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Query the DB and create a ReadResponse for Prometheus
+	db := r.FormValue("db")
+	rp := r.FormValue("rp")
+
+	readRequest, err := prometheus.ReadRequestToInfluxStorageRequestAiven(&req, db, rp)
+	if err != nil {
+		h.httpError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	respond := func(resp *remote.ReadResponse) {
+		data, err := proto.Marshal(resp)
+		if err != nil {
+			h.httpError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/x-protobuf")
+		w.Header().Set("Content-Encoding", "snappy")
+
+		compressed = snappy.Encode(nil, data)
+		if _, err := w.Write(compressed); err != nil {
+			h.httpError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		atomic.AddInt64(&h.stats.QueryRequestBytesTransmitted, int64(len(compressed)))
+	}
+
+	ctx := context.Background()
+	rs, err := h.Store.ReadFilter(ctx, readRequest)
+	if err != nil {
+		h.httpError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	resp := &remote.ReadResponse{
+		Results: []*remote.QueryResult{{}},
+	}
+
+	if rs == nil {
+		respond(resp)
+		return
+	}
+	defer rs.Close()
+
+	for rs.Next() {
+		cur := rs.Cursor()
+		if cur == nil {
+			// no data for series key + field combination
+			continue
+		}
+
+		var series = &remote.TimeSeries{}
+
+		var unsupportedCursor string
+		switch cur := cur.(type) {
+		case tsdb.FloatArrayCursor:
+			for a := cur.Next(); a.Len() > 0; a = cur.Next() {
+				for i, ts := range a.Timestamps {
+					series.Samples = append(series.Samples, &remote.Sample{
+						TimestampMs: ts / int64(time.Millisecond),
+						Value:       a.Values[i],
+					})
+				}
+			}
+		case tsdb.IntegerArrayCursor:
+			for a := cur.Next(); a.Len() > 0; a = cur.Next() {
+				for i, ts := range a.Timestamps {
+					series.Samples = append(series.Samples, &remote.Sample{
+						TimestampMs: ts / int64(time.Millisecond),
+						Value:       float64(a.Values[i]),
+					})
+				}
+			}
+		case tsdb.UnsignedArrayCursor:
+			for a := cur.Next(); a.Len() > 0; a = cur.Next() {
+				for i, ts := range a.Timestamps {
+					series.Samples = append(series.Samples, &remote.Sample{
+						TimestampMs: ts / int64(time.Millisecond),
+						Value:       float64(a.Values[i]),
+					})
+				}
+			}
+		case tsdb.BooleanArrayCursor:
+			for a := cur.Next(); a.Len() > 0; a = cur.Next() {
+				for i, ts := range a.Timestamps {
+					var value float64
+					if a.Values[i] {
+						value = 1
+					}
+					series.Samples = append(series.Samples, &remote.Sample{
+						TimestampMs: ts / int64(time.Millisecond),
+						Value:       value,
+					})
+				}
+			}
+		case tsdb.StringArrayCursor:
+			unsupportedCursor = "string"
+		default:
+			panic(fmt.Sprintf("unreachable: %T", cur))
+		}
+		cur.Close()
+
+		if len(series.Samples) == 0 {
+			continue
+		}
+
+		tags := prometheus.AddMetricName(rs.Tags())
+		tags = prometheus.RemoveInfluxSystemTags(tags)
+		series.Labels = prometheus.ModelTagsToLabelPairs(tags)
+
+		if len(unsupportedCursor) > 0 {
+			h.Logger.Info("Prometheus can't read cursor",
+				zap.String("cursor_type", unsupportedCursor),
+				zap.Stringer("series", tags),
+			)
+		} else {
+			resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, series)
 		}
 	}
 

@@ -1078,6 +1078,107 @@ func TestHandler_PromRead(t *testing.T) {
 	}
 }
 
+func TestHandler_PromReadAiven(t *testing.T) {
+	req := &remote.ReadRequest{
+		Queries: []*remote.Query{{
+			StartTimestampMs: 1,
+			EndTimestampMs:   2,
+		}},
+	}
+	data, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatal("couldn't marshal prometheus request")
+	}
+	compressed := snappy.Encode(nil, data)
+	b := bytes.NewReader(compressed)
+	h := NewHandler(false)
+	w := httptest.NewRecorder()
+
+	// Number of results in the result set
+	var i int64
+	h.Store.ResultSet.NextFn = func() bool {
+		i++
+		return i <= 2
+	}
+
+	// data for each cursor.
+	h.Store.ResultSet.CursorFn = func() tsdb.Cursor {
+		cursor := internal.NewFloatArrayCursorMock()
+
+		var i int64
+		cursor.NextFn = func() *tsdb.FloatArray {
+			i++
+			ts := []int64{22000000 * i, 10000000000 * i}
+			vs := []float64{2.3, 2992.33}
+			if i > 2 {
+				ts, vs = nil, nil
+			}
+			return &tsdb.FloatArray{Timestamps: ts, Values: vs}
+		}
+
+		return cursor
+	}
+
+	// Tags for each cursor.
+	h.Store.ResultSet.TagsFn = func() models.Tags {
+		return models.NewTags(map[string]string{
+			"host":         fmt.Sprintf("server-%d", i),
+			"_measurement": "mem",
+			"_field": "user",
+		})
+	}
+
+	h.ServeHTTP(w, MustNewRequest("POST", "/api/v1/aiven/read?db=foo&rp=bar", b))
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", w.Code)
+	}
+
+	reqBuf, err := snappy.Decode(nil, w.Body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var resp remote.ReadResponse
+	if err := proto.Unmarshal(reqBuf, &resp); err != nil {
+		t.Fatal(err)
+	}
+
+	expResults := []*remote.QueryResult{
+		{
+			Timeseries: []*remote.TimeSeries{
+				{
+					Labels: []*remote.LabelPair{
+						{Name: "__name__", Value: "mem_user"},
+						{Name: "host", Value: "server-1"},
+					},
+					Samples: []*remote.Sample{
+						{TimestampMs: 22, Value: 2.3},
+						{TimestampMs: 10000, Value: 2992.33},
+						{TimestampMs: 44, Value: 2.3},
+						{TimestampMs: 20000, Value: 2992.33},
+					},
+				},
+				{
+					Labels: []*remote.LabelPair{
+						{Name: "__name__", Value: "mem_user"},
+						{Name: "host", Value: "server-2"},
+					},
+					Samples: []*remote.Sample{
+						{TimestampMs: 22, Value: 2.3},
+						{TimestampMs: 10000, Value: 2992.33},
+						{TimestampMs: 44, Value: 2.3},
+						{TimestampMs: 20000, Value: 2992.33},
+					},
+				},
+			},
+		},
+	}
+
+	if !reflect.DeepEqual(resp.Results, expResults) {
+		t.Fatalf("Results differ:\n%v", cmp.Diff(resp.Results, expResults))
+	}
+}
+
 func TestHandler_PromRead_NoResults(t *testing.T) {
 	req := &remote.ReadRequest{Queries: []*remote.Query{&remote.Query{
 		Matchers: []*remote.LabelMatcher{
