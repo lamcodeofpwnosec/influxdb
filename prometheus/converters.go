@@ -168,7 +168,7 @@ func AddMetricName(tags models.Tags) models.Tags {
 		t = append(t, tt)
 	}
 
-	r := strings.NewReplacer(".", "_", "-", "_")
+	r := strings.NewReplacer(".", "_", "-", "_", "(", "_", ")", "_")
 	name := r.Replace(measurement + "_" + field)
 	// TODO: omit `"_" + field` when `filed == "value"`
 	t = append([]models.Tag{
